@@ -25,7 +25,7 @@ export const TUNING = {
   // and visibly denser, so the named referent "emerges" rather than fades.
   group: {
     baseline: { brightness: 1.0, density: 0.5 },
-    invoked:  { brightness: 1.7, density: 1.0 },
+    invoked:  { brightness: 1.7, density: 2.5 },
     // exponential lerp rate, 1/sec. ~0.6s to reach ~92% of target.
     lerpRate: 4.0,
   },
