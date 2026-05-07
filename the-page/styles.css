@@ -26,16 +26,39 @@ html, body {
   flex-direction: column;
   gap: 4px;
   z-index: 2;
+  /* Container is inert; only the buttons themselves accept clicks so the
+     surrounding margin doesn't intercept canvas pointer events. */
   pointer-events: none;
 }
 
 #texts .line {
+  /* Reset native <button> chrome — these read as plain text. */
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+
   font-size: 14px;
   color: rgba(255, 255, 255, 0.65);
   text-decoration: underline;
   text-decoration-color: rgba(255, 255, 255, 0.45);
   text-underline-offset: 3px;
   letter-spacing: 0.02em;
+  transition: color 0.4s ease, text-decoration-color 0.4s ease;
+}
+
+#texts .line.invoked {
+  color: rgba(255, 255, 255, 0.95);
+  text-decoration-color: rgba(255, 255, 255, 0.85);
+}
+
+#texts .line:focus-visible {
+  outline: 1px dotted rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
 }
 
 #texts .line::after {

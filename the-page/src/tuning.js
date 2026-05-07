@@ -15,4 +15,13 @@ export const TUNING = {
     // off-and-on. 0.45 keeps the field present even at the dim trough.
     depth: 0.45,
   },
+
+  // Per-group brightness multiplier. Background stays at 1.0 always;
+  // santa & table sit at `baseline` until clicked, then lerp to `invoked`.
+  group: {
+    baseline:  0.15,
+    invoked:   1.00,
+    // exponential lerp rate, 1/sec. ~0.6s to reach ~92% of target.
+    lerpRate:  4.0,
+  },
 };

@@ -1,4 +1,10 @@
-"""Extract particles from a black-and-white reference image via brightness-weighted importance sampling."""
+"""Extract per-layer particle sets from `References/` and bake one combined JSON.
+
+Each layer (background / table / Santa) was pre-segmented at the same
+resolution by the user, so all three share a common coordinate space.
+The output JSON groups particles by name and is consumed by
+`the-page/src/particles.js`.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,16 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+
+# Declaration order is rendering order: background draws first, then table,
+# then Santa on top. Counts are tuned for the source image's relative areas
+# — background fills the frame, table is a chunky shape, Santa is small.
+GROUPS: list[tuple[str, str, int]] = [
+    ("background", "background.png", 100_000),
+    ("table",      "table.png",       35_000),
+    ("santa",      "Santa.png",       25_000),
+]
 
 
 def load_grayscale(path: Path) -> np.ndarray:
@@ -50,15 +66,21 @@ def sample_particles(
     return np.stack([x, y, b], axis=1)
 
 
-def write_json(particles: np.ndarray, width: int, height: int, output: Path) -> int:
-    payload = {
-        "width": width,
-        "height": height,
-        "count": int(particles.shape[0]),
+def encode_group(name: str, particles: np.ndarray) -> dict:
+    return {
+        "name": name,
         "particles": [
             [round(float(x), 4), round(float(y), 4), round(float(b), 3)]
             for x, y, b in particles
         ],
+    }
+
+
+def write_json(width: int, height: int, groups: list[dict], output: Path) -> int:
+    payload = {
+        "width": width,
+        "height": height,
+        "groups": groups,
     }
     text = json.dumps(payload, separators=(",", ":"))
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -66,19 +88,16 @@ def write_json(particles: np.ndarray, width: int, height: int, output: Path) -> 
     return len(text)
 
 
-# Anchor default I/O paths to this script's location so the extractor works
-# regardless of the caller's CWD. Output goes into ../the-page/ so the web
-# page (served from that directory) can fetch it as "particles.json".
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_INPUT  = SCRIPT_DIR / "Reference.png"
-DEFAULT_OUTPUT = SCRIPT_DIR.parent / "the-page" / "particles.json"
+DEFAULT_INPUT_DIR = SCRIPT_DIR / "References"
+DEFAULT_OUTPUT    = SCRIPT_DIR.parent / "the-page" / "particles.json"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT_DIR,
+                        help="Directory containing the per-layer PNGs listed in GROUPS.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--count", type=int, default=160000, help="Number of particles to sample.")
     parser.add_argument(
         "--gamma",
         type=float,
@@ -97,15 +116,40 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    brightness = load_grayscale(args.input)
-    h, w = brightness.shape
-    particles = sample_particles(brightness, args.count, args.gamma, args.threshold, args.seed)
-    size_bytes = write_json(particles, w, h, args.output)
+
+    encoded_groups: list[dict] = []
+    canvas_size: tuple[int, int] | None = None
+
+    for offset, (name, filename, count) in enumerate(GROUPS):
+        path = args.input / filename
+        brightness = load_grayscale(path)
+        h, w = brightness.shape
+        if canvas_size is None:
+            canvas_size = (w, h)
+        elif canvas_size != (w, h):
+            raise ValueError(
+                f"{filename}: size {(w, h)} differs from first layer {canvas_size}; "
+                "all layers must share the same dimensions."
+            )
+
+        # Distinct seed per group so layers don't sample identical pixel indices
+        # in their (rare) overlaps; keeps the result reproducible.
+        try:
+            particles = sample_particles(
+                brightness, count, args.gamma, args.threshold, args.seed + offset
+            )
+        except ValueError as e:
+            raise ValueError(f"{filename}: {e}") from e
+
+        encoded_groups.append(encode_group(name, particles))
+        print(f"loaded {w}x{h}, sampled {count} particles from {name} ({filename})")
+
+    assert canvas_size is not None
+    width, height = canvas_size
+    size_bytes = write_json(width, height, encoded_groups, args.output)
     size_kb = size_bytes / 1024
-    print(
-        f"loaded {w}x{h}, sampled {args.count} particles, "
-        f"wrote {args.output} ({size_kb:.1f} KB)"
-    )
+    total = sum(len(g["particles"]) for g in encoded_groups)
+    print(f"wrote {args.output} — {len(encoded_groups)} groups, {total} particles, {size_kb:.1f} KB")
 
 
 if __name__ == "__main__":
