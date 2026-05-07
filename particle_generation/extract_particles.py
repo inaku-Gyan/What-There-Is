@@ -21,8 +21,11 @@ from PIL import Image
 # — background fills the frame, table is a chunky shape, Santa is small.
 GROUPS: list[tuple[str, str, int]] = [
     ("background", "background.png", 100_000),
-    ("table",      "table.png",       35_000),
-    ("santa",      "Santa.png",       25_000),
+    # table & santa get extra particles so the JS can render only a fraction
+    # at baseline (matching background density) and reveal the rest when
+    # the corresponding text is clicked — "emphasis = brightness + density".
+    ("table",      "table.png",       70_000),
+    ("santa",      "Santa.png",       50_000),
 ]
 
 

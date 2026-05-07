@@ -16,12 +16,17 @@ export const TUNING = {
     depth: 0.45,
   },
 
-  // Per-group brightness multiplier. Background stays at 1.0 always;
-  // santa & table sit at `baseline` until clicked, then lerp to `invoked`.
+  // Emphasis state for santa & table. Each group's emphasis level lerps
+  // 0→1 between `baseline` and `invoked`. Background ignores both and
+  // always renders at brightness=1, density=1.
+  //   brightness — alpha multiplier per particle (>1 lifts mid-tones).
+  //   density    — fraction of the group's baked particles drawn.
+  // Default: santa/table look like part of the scene. Invoked: brighter
+  // and visibly denser, so the named referent "emerges" rather than fades.
   group: {
-    baseline:  0.15,
-    invoked:   1.00,
+    baseline: { brightness: 1.0, density: 0.5 },
+    invoked:  { brightness: 1.7, density: 1.0 },
     // exponential lerp rate, 1/sec. ~0.6s to reach ~92% of target.
-    lerpRate:  4.0,
+    lerpRate: 4.0,
   },
 };

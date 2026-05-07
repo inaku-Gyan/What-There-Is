@@ -6,7 +6,13 @@
 //   { width, height, groups: [{ name, particles: [[x, y, b], ...] }, ...] }
 // where x, y ∈ [0,1] of the source image and brightness ∈ [0,1].
 // Group declaration order is the rendering order (background first, etc.).
+//
+// Each group has an `emphasis level` that lerps 0 → 1 between TUNING.group
+// `baseline` and `invoked` configs. The level drives both brightness
+// (alpha multiplier) and density (fraction of baked particles drawn).
 import { TUNING } from "./tuning.js";
+
+const lerp = (a, b, t) => a + (b - a) * t;
 
 export class Particles {
   constructor(data) {
@@ -14,7 +20,6 @@ export class Particles {
     this.srcW = width;
     this.srcH = height;
 
-    // Total over all groups, used to size the packed typed arrays.
     let total = 0;
     for (const g of groups) total += g.particles.length;
     this.total = total;
@@ -24,8 +29,6 @@ export class Particles {
     this.pb    = new Float32Array(total);
     this.phase = new Float32Array(total);
 
-    // Per-group state: render range + brightness multiplier (current/target).
-    // background renders at 1.0 by default; santa & table sit at baseline.
     this.groups = {};
     this.groupOrder = [];
 
@@ -38,33 +41,41 @@ export class Particles {
         this.px[i] = arr[j][0];
         this.py[i] = arr[j][1];
         this.pb[i] = arr[j][2];
-        // Deterministic per-index phase, uniformly distributed in [0, 2π).
-        // Index `i` is the global packed index, so the phase pattern is
-        // continuous across group boundaries — staggering is preserved.
+        // Phase uses the global packed index so staggering is continuous
+        // across group boundaries — no visible seam at group joins.
         this.phase[i] = ((i * 9301 + 49297) % 233280) / 233280 * Math.PI * 2;
       }
       cursor += arr.length;
 
+      // Background ignores baseline/invoked and always renders fully.
       const isBackground = g.name === "background";
-      const init = isBackground ? 1.0 : TUNING.group.baseline;
+      const baselineCfg = isBackground
+        ? { brightness: 1.0, density: 1.0 }
+        : TUNING.group.baseline;
+      const invokedCfg  = isBackground
+        ? { brightness: 1.0, density: 1.0 }
+        : TUNING.group.invoked;
+
       this.groups[g.name] = {
         start,
         end: cursor,
-        activeCount: arr.length,
-        current: init,
-        target:  init,
+        baseline: baselineCfg,
+        invoked:  invokedCfg,
+        level:       0,   // 0 → at baseline, 1 → at invoked
+        levelTarget: 0,
+        activeCount: 0,   // recomputed in tick()
       };
       this.groupOrder.push(g.name);
     }
 
     this.viewX = 0; this.viewY = 0; this.viewW = 0; this.viewH = 0;
+    this.viewRatio = 1;
     this.dpr = 1;
   }
 
-  // Recompute letterbox + responsive active-particle count for the
-  // current viewport. Active count scales with CSS-pixel viewport area
-  // as a fraction of the source image area, so a small window renders
-  // proportionally fewer particles per group (and stays smooth).
+  // Letterbox + responsive base ratio. Active per-group counts depend on
+  // both this ratio AND each group's current density level, so they are
+  // updated in tick() rather than here.
   resize(W, H, dpr) {
     this.dpr = dpr;
     const cw = W * dpr;
@@ -85,28 +96,27 @@ export class Particles {
 
     const srcArea  = this.srcW * this.srcH;
     const viewArea = W * H;
-    const ratio = Math.min(1, viewArea / srcArea) * TUNING.density;
-    for (const name of this.groupOrder) {
-      const g = this.groups[name];
-      const total = g.end - g.start;
-      g.activeCount = Math.min(total, Math.round(total * ratio));
-    }
+    this.viewRatio = Math.min(1, viewArea / srcArea) * TUNING.density;
   }
 
-  // Toggle a group's brightness target between baseline and invoked.
+  // Toggle a group's emphasis target between 0 (baseline) and 1 (invoked).
   setEmphasis(name, on) {
     const g = this.groups[name];
     if (!g) return;
-    g.target = on ? TUNING.group.invoked : TUNING.group.baseline;
+    g.levelTarget = on ? 1 : 0;
   }
 
-  // Advance per-group brightness lerp. Framerate-independent exponential
-  // smoothing: critically damped, hits ~92% of target in 1/lerpRate * 2.5 s.
+  // Advance per-group emphasis level + recompute active count. Exponential
+  // smoothing is framerate-independent and naturally critically damped.
   tick(dt) {
-    const k = 1 - Math.exp(-TUNING.group.lerpRate * dt);
+    const k = dt > 0 ? 1 - Math.exp(-TUNING.group.lerpRate * dt) : 0;
+    const ratio = this.viewRatio;
     for (const name of this.groupOrder) {
       const g = this.groups[name];
-      g.current += (g.target - g.current) * k;
+      g.level += (g.levelTarget - g.level) * k;
+      const total = g.end - g.start;
+      const density = lerp(g.baseline.density, g.invoked.density, g.level);
+      g.activeCount = Math.min(total, Math.max(0, Math.round(total * ratio * density)));
     }
   }
 
@@ -123,16 +133,16 @@ export class Particles {
 
     for (const name of this.groupOrder) {
       const g = this.groups[name];
-      // Skip wholly invisible groups — saves the inner loop entirely when
-      // a group's brightness has lerped down to ~0 (won't happen with
-      // baseline > 0, but keeps the path tight if tuning ever changes).
-      if (g.current <= 0.001) continue;
+      if (g.activeCount <= 0) continue;
 
-      const mul = g.current;
+      const brightness = lerp(g.baseline.brightness, g.invoked.brightness, g.level);
       const end = g.start + g.activeCount;
       for (let i = g.start; i < end; i++) {
         const tw = Math.sin(t * speed + phase[i]);
-        const a  = pb[i] * (1 - depth + depth * (0.5 + 0.5 * tw)) * mul;
+        // brightness > 1 may push the alpha past 1; the canvas clamps to 1
+        // automatically, which is exactly the "saturate the bright dots"
+        // effect we want for emphasis.
+        const a  = pb[i] * (1 - depth + depth * (0.5 + 0.5 * tw)) * brightness;
         const sx = vx + px[i] * vw;
         const sy = vy + py[i] * vh;
         ctx.globalAlpha = a;

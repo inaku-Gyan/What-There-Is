@@ -43,8 +43,8 @@ function wireTextButtons() {
       const name = btn.dataset.group;
       const g = particles.groups[name];
       if (!g) return;
-      // Source of truth for invoked-or-not is the group's own target.
-      const isInvoked = g.target >= TUNING.group.invoked - 1e-3;
+      // Source of truth for invoked-or-not is the group's own target level.
+      const isInvoked = g.levelTarget >= 0.5;
       const next = !isInvoked;
       particles.setEmphasis(name, next);
       btn.classList.toggle("invoked", next);
