@@ -1,0 +1,64 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+  height: 100%;
+  width: 100%;
+  font-family: "Courier New", ui-monospace, monospace;
+  -webkit-font-smoothing: antialiased;
+}
+
+#stage {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+#texts {
+  position: fixed;
+  top: 22px;
+  left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+#texts .line {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.35);
+  text-underline-offset: 3px;
+  letter-spacing: 0.02em;
+  transition: color 0.6s ease, text-decoration-color 0.6s ease;
+  /* small old-school arrow cursor, inlined to keep the project file-free */
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='18' viewBox='0 0 14 18'><path d='M1 1 L1 14 L4 11 L6 16 L8 15 L6 10 L11 10 Z' fill='white' stroke='black' stroke-width='1'/></svg>") 1 1, pointer;
+}
+
+#texts .line:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+#texts .line:focus { outline: none; }
+#texts .line:focus-visible {
+  outline: 1px dashed rgba(255, 255, 255, 0.4);
+  outline-offset: 2px;
+}
+
+#texts .line.invoked {
+  color: #ffffff;
+  text-decoration-color: rgba(255, 255, 255, 0.9);
+}
