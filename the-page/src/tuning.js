@@ -37,21 +37,40 @@ export const TUNING = {
     lerpRate: 4.0,
   },
 
-  // Mouse-driven scramble: as the cursor moves, particles within `radius`
-  // get their wander amplitude briefly amplified, then decay back. The
-  // wander multiplier is (1 + disturb · ampMultiplier), so an emphasized
-  // group whose wander is already damped to zero is naturally immune —
-  // multiplying zero by anything stays zero, no separate exemption needed.
+  // Mouse-driven scramble. Each cursor sample drops a "stamp" — a circular
+  // ring that grows outward over time. Each frame only the *new annulus*
+  // (the band of space the ring just swept across) hits fresh particles,
+  // so the disturbance reads as a diffusing ripple rather than a fixed
+  // brushstroke: a bright leading edge with a trailing wake that fades
+  // via per-particle decay. Emphasized groups (wander damped to zero)
+  // are naturally immune — multiplying zero amplitude by anything stays
+  // zero, no separate exemption code path needed.
   mouse: {
-    // Radius of disturbance in normalized [0,1] source units. Multiplied
-    // by min(viewW, viewH) at runtime so the footprint reads as a circle
-    // regardless of the source's aspect ratio.
-    // 0.05 → ~50px on a 1000px-tall letterboxed view.
-    radius: 0.05,
-    // Peak wander amplification. 10 means a fully disturbed particle
-    // wanders 11× wider than its calm baseline.
+    // Initial stamp radius in normalized [0,1] source units. Multiplied
+    // by min(viewW, viewH) at render so the footprint is a circle in
+    // canvas pixels regardless of source aspect.
+    // 0.025 → ~25px on a 1000px-tall view.
+    startRadius: 0.025,
+    // Outward growth rate of the disk (normalized units / sec). The disk
+    // has a parabolic radial falloff and a linear age-intensity fade, so
+    // its visible boundary feathers smoothly into the field instead of
+    // appearing as a hard ring. Geometric reach at age=maxAge equals
+    // startRadius + spreadSpeed × maxAge (= 0.165 with these defaults).
+    spreadSpeed: 0.20,
+    // Stamp lifespan (sec). After this the stamp is dropped; particles
+    // that were ever hit continue to decay via decayRate below.
+    maxAge: 0.7,
+    // Wander amplification when disturb=1 (immediately after a hit).
     ampMultiplier: 12.0,
-    // Disturb decay rate (1/sec). 2.0 → ~50% in 0.35s, ~95% in 1.5s.
-    decayRate: 2.0,
+    // Per-particle disturb decay rate (1/sec). This determines how long
+    // the wake trails the moving ring — 2.5 → 50% in ~0.28s.
+    decayRate: 2.5,
+    // Min spacing between successive stamps along the mouse polyline,
+    // normalized. Should be ≤ startRadius so stamps overlap into a
+    // continuous bristle. Smaller = denser stamps = higher per-frame cost.
+    pathSpacing: 0.020,
+    // Hard cap on simultaneous active stamps. Bounds worst-case cost
+    // under runaway input; never reached in normal use.
+    maxStamps: 256,
   },
 };

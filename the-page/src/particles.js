@@ -96,6 +96,16 @@ export class Particles {
     this.mouseSamples = [];
     this.prevSampleX = null;
     this.prevSampleY = null;
+
+    // Active stamps. Each stamp is a ring centered at (stampX, stampY) that
+    // started at startRadius when age=0 and grows outward at spreadSpeed.
+    // Only the annulus newly swept *this frame* (between last frame's
+    // radius and this frame's) hits fresh particles, so the wake reads
+    // as an expanding ripple rather than a uniformly-disturbed disk.
+    // Stored in canvas pixels and parallel-arrayed; appended FIFO.
+    this.stampX = [];
+    this.stampY = [];
+    this.stampAge = [];
   }
 
   resize(W, H, dpr) {
@@ -119,6 +129,17 @@ export class Particles {
     const srcArea  = this.srcW * this.srcH;
     const viewArea = W * H;
     this.viewRatio = Math.min(1, viewArea / srcArea) * TUNING.density;
+
+    // Stamp positions are in canvas pixels — invalidated by a resize, so
+    // start the ripple state from a clean slate rather than displaying a
+    // wake at stale coordinates.
+    this.mouseSamples.length = 0;
+    this.prevSampleX = null;
+    this.prevSampleY = null;
+    this.stampX.length = 0;
+    this.stampY.length = 0;
+    this.stampAge.length = 0;
+    this.disturb.fill(0);
   }
 
   setEmphasis(name, on) {
@@ -152,76 +173,150 @@ export class Particles {
       }
     }
 
-    // Apply this frame's mouse disturbance. We get one sample per coalesced
-    // pointer event (typically several per frame on high-poll-rate mice),
-    // plus we subdivide any segment longer than the disturb radius so fast
-    // sweeps still leave a continuous trail rather than dotted stamps.
+    // --- Mouse stamps: ripple model ---
+    // Each stamp is a circle that started at startRadius and grows outward
+    // at spreadSpeed. Per-particle disturb decays exponentially (above), so
+    // a particle hit by the leading edge keeps its disturb=1 momentarily
+    // and then fades — that's the trailing wake.
+
+    // Age existing stamps and drop those that have lived past maxAge.
+    // Stamps are appended FIFO, so the oldest are at the front.
+    const maxAge = TUNING.mouse.maxAge;
+    if (dt > 0 && this.stampAge.length > 0) {
+      for (let i = 0; i < this.stampAge.length; i++) {
+        this.stampAge[i] += dt;
+      }
+      let removeCount = 0;
+      while (removeCount < this.stampAge.length && this.stampAge[removeCount] >= maxAge) {
+        removeCount++;
+      }
+      if (removeCount > 0) {
+        this.stampX.splice(0, removeCount);
+        this.stampY.splice(0, removeCount);
+        this.stampAge.splice(0, removeCount);
+      }
+    }
+
+    // Drain new mouse samples into stamps. The "anchor" lx/ly is the last
+    // *stamped* position — it only advances when we drop a stamp, so a
+    // sequence of small sub-sample moves accumulates until it crosses the
+    // path-spacing threshold, rather than burning one stamp per sample.
+    // Long jumps get subdivided so a fast slash leaves a continuous trail.
     const samples = this.mouseSamples;
     if (samples.length > 0 && this.viewW > 0 && this.viewH > 0) {
-      const rPx = TUNING.mouse.radius * Math.min(this.viewW, this.viewH);
-      const r2 = rPx * rPx;
-      // 0.6 → adjacent stamps overlap with margin; smaller = denser, slower.
-      const stepSize = rPx * 0.6;
-
-      // Walk the polyline (prevSample → samples[0] → samples[1] → ...) and
-      // emit dense stamps. Cap subdivisions per segment so a freak teleport
-      // (tab refocus, drag-drop) can't blow up cost.
-      const stamps = [];
+      const spacingPx = TUNING.mouse.pathSpacing * Math.min(this.viewW, this.viewH);
+      const spacing2 = spacingPx * spacingPx;
       let lx = this.prevSampleX, ly = this.prevSampleY;
       for (let s = 0; s < samples.length; s += 2) {
         const nx = samples[s], ny = samples[s + 1];
-        if (lx !== null) {
-          const dx = nx - lx, dy = ny - ly;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const subdivs = Math.min(32, Math.max(1, Math.ceil(dist / stepSize)));
-          for (let k = 1; k <= subdivs; k++) {
-            const t = k / subdivs;
-            stamps.push(lx + dx * t, ly + dy * t);
-          }
+        if (lx === null) {
+          this.stampX.push(nx);
+          this.stampY.push(ny);
+          this.stampAge.push(0);
+          lx = nx; ly = ny;
         } else {
-          stamps.push(nx, ny);
+          const dx = nx - lx, dy = ny - ly;
+          const d2 = dx * dx + dy * dy;
+          if (d2 >= spacing2) {
+            const dist = Math.sqrt(d2);
+            // Cap so a window-refocus teleport doesn't drop hundreds of stamps.
+            const subdivs = Math.min(32, Math.ceil(dist / spacingPx));
+            for (let k = 1; k <= subdivs; k++) {
+              const t = k / subdivs;
+              this.stampX.push(lx + dx * t);
+              this.stampY.push(ly + dy * t);
+              this.stampAge.push(0);
+            }
+            lx = nx; ly = ny;
+          }
+          // else: too close to anchor — accumulate, no new stamp.
         }
-        lx = nx; ly = ny;
       }
       this.prevSampleX = lx;
       this.prevSampleY = ly;
       samples.length = 0;
+    }
 
-      // Bounding box of all stamps, inflated by r — particles outside this
-      // box can't possibly be hit by any stamp, so we bail before the inner
-      // loop. This keeps cost roughly proportional to trail area, not N×M.
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      const stampLen = stamps.length;
-      for (let s = 0; s < stampLen; s += 2) {
-        const x = stamps[s], y = stamps[s + 1];
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+    // Hard cap. With normal cursor input we sit well below this; the cap
+    // exists to bound runaway scenarios (stuck-mouse, synthetic events).
+    const maxStamps = TUNING.mouse.maxStamps;
+    if (this.stampX.length > maxStamps) {
+      const drop = this.stampX.length - maxStamps;
+      this.stampX.splice(0, drop);
+      this.stampY.splice(0, drop);
+      this.stampAge.splice(0, drop);
+    }
+
+    // Per-stamp annulus particle scan. We compute prev and current radii
+    // for each stamp; only particles in (prevR², currR²] get hit this frame
+    // (i.e., they were outside the ring last frame and inside it now).
+    // Newborn stamps treat prevR=0, so the first frame stamps a full disk.
+    const stampCount = this.stampX.length;
+    if (stampCount > 0 && this.viewW > 0 && this.viewH > 0) {
+      const minView = Math.min(this.viewW, this.viewH);
+      const startRPx = TUNING.mouse.startRadius * minView;
+      const spreadPxPerSec = TUNING.mouse.spreadSpeed * minView;
+
+      // Precompute per-stamp disk + AABB + age-intensity; track union AABB.
+      // intensity(age) = 1 - age/maxAge fades the disk smoothly to zero at
+      // maxAge so there's no abrupt ring cutoff. Combined with the parabolic
+      // radial falloff (computed in the inner loop), the disk feathers in
+      // both space and time — no visible "wall".
+      const csR2   = new Float32Array(stampCount);
+      const csI    = new Float32Array(stampCount);
+      const csXmin = new Float32Array(stampCount);
+      const csXmax = new Float32Array(stampCount);
+      const csYmin = new Float32Array(stampCount);
+      const csYmax = new Float32Array(stampCount);
+      let gMinX = Infinity, gMaxX = -Infinity, gMinY = Infinity, gMaxY = -Infinity;
+      for (let s = 0; s < stampCount; s++) {
+        const age = this.stampAge[s];
+        const r = startRPx + age * spreadPxPerSec;
+        csR2[s] = r * r;
+        csI[s]  = Math.max(0, 1 - age / maxAge);
+        const sx = this.stampX[s], sy = this.stampY[s];
+        const xmin = sx - r, xmax = sx + r;
+        const ymin = sy - r, ymax = sy + r;
+        csXmin[s] = xmin; csXmax[s] = xmax;
+        csYmin[s] = ymin; csYmax[s] = ymax;
+        if (xmin < gMinX) gMinX = xmin;
+        if (xmax > gMaxX) gMaxX = xmax;
+        if (ymin < gMinY) gMinY = ymin;
+        if (ymax > gMaxY) gMaxY = ymax;
       }
-      minX -= rPx; maxX += rPx; minY -= rPx; maxY += rPx;
 
       const px = this.px, py = this.py, disturb = this.disturb;
+      const sxArr = this.stampX, syArr = this.stampY;
       const vx = this.viewX, vy = this.viewY, vw = this.viewW, vh = this.viewH;
       for (const name of this.groupOrder) {
         const g = this.groups[name];
-        // Fully-emphasized groups have wander damped to zero, so disturb
-        // is invisible there — skip the distance check entirely.
+        // Fully-emphasized groups have wander damped to zero — disturb is
+        // invisible there, so skip the scan.
         if (g.level > 0.999) continue;
         const end = g.end;
         for (let i = g.start; i < end; i++) {
           const ppx = vx + px[i] * vw;
-          if (ppx < minX || ppx > maxX) continue;
+          if (ppx < gMinX || ppx > gMaxX) continue;
           const ppy = vy + py[i] * vh;
-          if (ppy < minY || ppy > maxY) continue;
-          for (let s = 0; s < stampLen; s += 2) {
-            const dx = ppx - stamps[s];
-            const dy = ppy - stamps[s + 1];
-            if (dx * dx + dy * dy <= r2) {
-              disturb[i] = 1.0;
-              break;
-            }
+          if (ppy < gMinY || ppy > gMaxY) continue;
+          // Parabolic falloff inside each stamp's disk, max-accumulated
+          // across all stamps the particle is inside. The result is then
+          // max-merged with the existing disturb (which decays per-frame),
+          // so a fading stamp leaves a trailing wake via per-particle decay.
+          let maxI = 0;
+          for (let s = 0; s < stampCount; s++) {
+            if (csI[s] <= 0) continue;
+            if (ppx < csXmin[s] || ppx > csXmax[s]) continue;
+            if (ppy < csYmin[s] || ppy > csYmax[s]) continue;
+            const dx = ppx - sxArr[s];
+            const dy = ppy - syArr[s];
+            const d2 = dx * dx + dy * dy;
+            const r2 = csR2[s];
+            if (d2 >= r2) continue;
+            const intensity = csI[s] * (1 - d2 / r2);
+            if (intensity > maxI) maxI = intensity;
           }
+          if (maxI > disturb[i]) disturb[i] = maxI;
         }
       }
     }
