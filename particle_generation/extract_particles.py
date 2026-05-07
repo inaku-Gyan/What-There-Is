@@ -25,7 +25,7 @@ GROUPS: list[tuple[str, str, int]] = [
     # at baseline (matching background density) and reveal the rest when
     # the corresponding text is clicked — "emphasis = brightness + density".
     ("table",      "table.png",       100_000),
-    ("santa",      "Santa.png",       20_000),
+    ("santa",      "Santa.png",       5_000),
 ]
 
 
