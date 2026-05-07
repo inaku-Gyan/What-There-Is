@@ -20,11 +20,15 @@ html, body {
 
 #texts {
   position: fixed;
-  top: 22px;
-  left: 24px;
+  /* Position scales with the smaller viewport dimension (vmin) so the inset
+     looks proportional in landscape and portrait both. Clamps cap the
+     extremes so the text doesn't kiss the edge on phones or float far inland
+     on a 4K monitor. */
+  top:  clamp(64px, 11vmin, 144px);
+  left: clamp(16px, 2.8vmin, 40px);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: clamp(8px, 1.8vmin, 20px);
   z-index: 2;
   /* Container is inert; only the buttons themselves accept clicks so the
      surrounding margin doesn't intercept canvas pointer events. */
@@ -42,11 +46,13 @@ html, body {
   cursor: pointer;
   pointer-events: auto;
 
-  font-size: 14px;
+  /* Responsive type. ~24px at narrow viewports, ~44px on a 1440px+ screen. */
+  font-size: clamp(19px, 2.7vmin, 35px);
   color: rgba(255, 255, 255, 0.65);
   text-decoration: underline;
   text-decoration-color: rgba(255, 255, 255, 0.45);
-  text-underline-offset: 3px;
+  /* Underline offset & letter-spacing are kept in em so they track font-size. */
+  text-underline-offset: 0.22em;
   letter-spacing: 0.02em;
   transition: color 0.4s ease, text-decoration-color 0.4s ease;
 }
@@ -73,10 +79,11 @@ html, body {
 #texts .line::after {
   content: "";
   display: inline-block;
-  width: 14px;
-  height: 16px;
-  margin-left: 6px;
-  vertical-align: -4px;
+  /* Sized in em so the cursor glyph scales with the responsive font-size. */
+  width: 1em;
+  height: 1.15em;
+  margin-left: 0.45em;
+  vertical-align: -0.3em;
   background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='16' viewBox='0 0 14 16'><path d='M4 1 H6 V4 H8 V5 H10 V6 H12 V11 H11 V12 H10 V13 H9 V14 H5 V13 H4 V12 H3 V11 H2 V7 H4 Z' fill='white' stroke='black' stroke-width='0.5'/></svg>") no-repeat center / contain;
   opacity: 0.85;
 }
