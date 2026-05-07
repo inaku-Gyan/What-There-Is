@@ -32,18 +32,25 @@ export class Particles {
     this.groups = {};
     this.groupOrder = [];
 
+    const TWO_PI = Math.PI * 2;
+    const Fx = TUNING.twinkle.phaseFx;
+    const Fy = TUNING.twinkle.phaseFy;
+
     let cursor = 0;
     for (const g of groups) {
       const start = cursor;
       const arr = g.particles;
       for (let j = 0; j < arr.length; j++) {
         const i = cursor + j;
-        this.px[i] = arr[j][0];
-        this.py[i] = arr[j][1];
+        const x = arr[j][0];
+        const y = arr[j][1];
+        this.px[i] = x;
+        this.py[i] = y;
         this.pb[i] = arr[j][2];
-        // Phase uses the global packed index so staggering is continuous
-        // across group boundaries — no visible seam at group joins.
-        this.phase[i] = ((i * 9301 + 49297) % 233280) / 233280 * Math.PI * 2;
+        // Position-based phase: nearby particles get nearby phases, so
+        // entire regions of the image breathe in sync. Bright/dark bands
+        // drift diagonally across the canvas as t advances.
+        this.phase[i] = (x * Fx + y * Fy) * TWO_PI;
       }
       cursor += arr.length;
 
