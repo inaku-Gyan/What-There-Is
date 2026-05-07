@@ -6,24 +6,21 @@ export const TUNING = {
   // dpr cap — keep at 1.5 to avoid 4x cost on retina displays
   dprCap: 1.5,
 
-  // Brightness cycling. Each particle's phase is derived from its baked
-  // (x, y) position, so spatially-nearby particles share phases — the
-  // image breathes in zones (slowly drifting bright/dark patches) rather
-  // than as incoherent per-particle shimmer. Easier on the eye, and much
-  // more visible since whole regions pulse together.
-  twinkle: {
-    // angular speed of the cycle, radians per millisecond.
-    // 0.0014 → each particle completes a full cycle ≈ every 4.5s.
-    speed: 0.0014,
-    // fraction of base brightness modulated. 0 = no twinkle, 1 = full
-    // off-and-on. 0.7 keeps the field present at the dim trough.
-    depth: 0.7,
-    // Spatial phase frequency in cycles across the source image.
-    // (Fx, Fy) = (2.5, 1.7) → ~2-3 bright/dark bands diagonally across
-    // the canvas at any moment, drifting as t advances. Larger numbers
-    // → smaller zones; (0, 0) reduces to a synchronized whole-image strobe.
-    phaseFx: 2.5,
-    phaseFy: 1.7,
+  // Brownian-like wander: each particle gently orbits its baked
+  // (homeX, homeY). Two superimposed sinusoids per axis with uncorrelated
+  // per-particle phases give a quasi-random trajectory — visible aliveness
+  // without the noise of a true random walk, and bounded so the scene
+  // doesn't drift away from its baked composition over time.
+  wander: {
+    // Amplitude in normalized [0,1] source-image units. Multiplied by the
+    // viewport view-width/height at render time to land in pixels.
+    // 0.004 → ~6px of wander on a 1500px-wide letterboxed view.
+    amp: 0.004,
+    // Two angular speeds (rad/ms). Incommensurate ratio so the trajectory
+    // doesn't repeat — looks like wander, not a circular orbit.
+    // 0.0011 → ~5.7s cycle, 0.00073 → ~8.6s cycle.
+    speedA: 0.0011,
+    speedB: 0.00073,
   },
 
   // Emphasis state for santa & table. Each group's emphasis level lerps

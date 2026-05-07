@@ -1,6 +1,7 @@
 // Loads the baked particle field from particles.json into typed arrays
-// and renders it letterboxed to the viewport with a per-particle staggered
-// twinkle (lighter ↔ darker brightness cycle).
+// and renders it letterboxed to the viewport. Each particle wanders
+// gently around its baked (homeX, homeY) via two superimposed sinusoids
+// per axis (Brownian-like, but bounded and deterministic).
 //
 // The JSON format (produced by particle_generation/extract_particles.py):
 //   { width, height, groups: [{ name, particles: [[x, y, b], ...] }, ...] }
@@ -14,6 +15,13 @@ import { TUNING } from "./tuning.js";
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
+// Four uncorrelated deterministic per-index hashes in [0, 2π). Different
+// LCG-style multipliers per channel keep the four phases independent so
+// no particle traces a perfect ellipse. Computed once at bake time.
+function hashPhase(i, mul, add, mod) {
+  return ((i * mul + add) % mod) / mod * Math.PI * 2;
+}
+
 export class Particles {
   constructor(data) {
     const { width, height, groups } = data;
@@ -24,17 +32,18 @@ export class Particles {
     for (const g of groups) total += g.particles.length;
     this.total = total;
 
-    this.px    = new Float32Array(total);
-    this.py    = new Float32Array(total);
-    this.pb    = new Float32Array(total);
-    this.phase = new Float32Array(total);
+    this.px = new Float32Array(total);
+    this.py = new Float32Array(total);
+    this.pb = new Float32Array(total);
+    // Phase pairs for the two harmonics on each axis. Pre-computed so the
+    // render loop only does sin() calls, no hashing.
+    this.phAx = new Float32Array(total);
+    this.phAy = new Float32Array(total);
+    this.phBx = new Float32Array(total);
+    this.phBy = new Float32Array(total);
 
     this.groups = {};
     this.groupOrder = [];
-
-    const TWO_PI = Math.PI * 2;
-    const Fx = TUNING.twinkle.phaseFx;
-    const Fy = TUNING.twinkle.phaseFy;
 
     let cursor = 0;
     for (const g of groups) {
@@ -42,15 +51,13 @@ export class Particles {
       const arr = g.particles;
       for (let j = 0; j < arr.length; j++) {
         const i = cursor + j;
-        const x = arr[j][0];
-        const y = arr[j][1];
-        this.px[i] = x;
-        this.py[i] = y;
+        this.px[i] = arr[j][0];
+        this.py[i] = arr[j][1];
         this.pb[i] = arr[j][2];
-        // Position-based phase: nearby particles get nearby phases, so
-        // entire regions of the image breathe in sync. Bright/dark bands
-        // drift diagonally across the canvas as t advances.
-        this.phase[i] = (x * Fx + y * Fy) * TWO_PI;
+        this.phAx[i] = hashPhase(i,    9301,    49297,     233280);
+        this.phAy[i] = hashPhase(i,  196314,    71993,    1048576);
+        this.phBx[i] = hashPhase(i,   75773,    13849,    4194304);
+        this.phBy[i] = hashPhase(i, 1442695, 1013904223, 4294967296);
       }
       cursor += arr.length;
 
@@ -68,9 +75,9 @@ export class Particles {
         end: cursor,
         baseline: baselineCfg,
         invoked:  invokedCfg,
-        level:       0,   // 0 → at baseline, 1 → at invoked
+        level:       0,
         levelTarget: 0,
-        activeCount: 0,   // recomputed in tick()
+        activeCount: 0,
       };
       this.groupOrder.push(g.name);
     }
@@ -80,9 +87,6 @@ export class Particles {
     this.dpr = 1;
   }
 
-  // Letterbox + responsive base ratio. Active per-group counts depend on
-  // both this ratio AND each group's current density level, so they are
-  // updated in tick() rather than here.
   resize(W, H, dpr) {
     this.dpr = dpr;
     const cw = W * dpr;
@@ -106,15 +110,12 @@ export class Particles {
     this.viewRatio = Math.min(1, viewArea / srcArea) * TUNING.density;
   }
 
-  // Toggle a group's emphasis target between 0 (baseline) and 1 (invoked).
   setEmphasis(name, on) {
     const g = this.groups[name];
     if (!g) return;
     g.levelTarget = on ? 1 : 0;
   }
 
-  // Advance per-group emphasis level + recompute active count. Exponential
-  // smoothing is framerate-independent and naturally critically damped.
   tick(dt) {
     const k = dt > 0 ? 1 - Math.exp(-TUNING.group.lerpRate * dt) : 0;
     const ratio = this.viewRatio;
@@ -132,11 +133,18 @@ export class Particles {
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.fillStyle = "#fff";
 
-    const speed   = TUNING.twinkle.speed;
-    const depth   = TUNING.twinkle.depth;
     const dotSize = Math.max(1, Math.round(this.dpr));
-    const px = this.px, py = this.py, pb = this.pb, phase = this.phase;
+    const px = this.px, py = this.py, pb = this.pb;
+    const phAx = this.phAx, phAy = this.phAy, phBx = this.phBx, phBy = this.phBy;
     const vx = this.viewX, vy = this.viewY, vw = this.viewW, vh = this.viewH;
+
+    // Wander offset = amp * (sin(t·wA + phA) + sin(t·wB + phB)) per axis.
+    // Hoist the time-dependent terms so each particle only does fixed-cost
+    // sinusoid evaluations.
+    const ampX = TUNING.wander.amp * vw * 0.5;
+    const ampY = TUNING.wander.amp * vh * 0.5;
+    const tA = t * TUNING.wander.speedA;
+    const tB = t * TUNING.wander.speedB;
 
     for (const name of this.groupOrder) {
       const g = this.groups[name];
@@ -145,14 +153,11 @@ export class Particles {
       const brightness = lerp(g.baseline.brightness, g.invoked.brightness, g.level);
       const end = g.start + g.activeCount;
       for (let i = g.start; i < end; i++) {
-        const tw = Math.sin(t * speed + phase[i]);
-        // brightness > 1 may push the alpha past 1; the canvas clamps to 1
-        // automatically, which is exactly the "saturate the bright dots"
-        // effect we want for emphasis.
-        const a  = pb[i] * (1 - depth + depth * (0.5 + 0.5 * tw)) * brightness;
-        const sx = vx + px[i] * vw;
-        const sy = vy + py[i] * vh;
-        ctx.globalAlpha = a;
+        const ox = ampX * (Math.sin(tA + phAx[i]) + Math.sin(tB + phBx[i]));
+        const oy = ampY * (Math.sin(tA + phAy[i]) + Math.sin(tB + phBy[i]));
+        const sx = vx + px[i] * vw + ox;
+        const sy = vy + py[i] * vh + oy;
+        ctx.globalAlpha = pb[i] * brightness;
         ctx.fillRect(sx, sy, dotSize, dotSize);
       }
     }
