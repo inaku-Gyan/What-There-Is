@@ -62,7 +62,7 @@ html, body {
   transition: color 0.4s ease;
 }
 #texts .line.invoked .kw {
-  color: #b11226;
+  color: #d27076;
 }
 
 #texts .line:focus-visible {
