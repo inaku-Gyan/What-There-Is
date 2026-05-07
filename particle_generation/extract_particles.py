@@ -24,8 +24,8 @@ GROUPS: list[tuple[str, str, int]] = [
     # table & santa get extra particles so the JS can render only a fraction
     # at baseline (matching background density) and reveal the rest when
     # the corresponding text is clicked — "emphasis = brightness + density".
-    ("table",      "table.png",       70_000),
-    ("santa",      "Santa.png",       50_000),
+    ("table",      "table.png",       100_000),
+    ("santa",      "Santa.png",       100_000),
 ]
 
 
