@@ -151,14 +151,30 @@ export class Particles {
       if (g.activeCount <= 0) continue;
 
       const brightness = lerp(g.baseline.brightness, g.invoked.brightness, g.level);
+      // Wander damps to zero as a group is invoked, so the named referent
+      // visually "settles" into its baked silhouette while everything else
+      // (background, plus any un-invoked group) keeps breathing.
+      const wanderScale = 1 - g.level;
+      const groupAmpX = ampX * wanderScale;
+      const groupAmpY = ampY * wanderScale;
       const end = g.start + g.activeCount;
-      for (let i = g.start; i < end; i++) {
-        const ox = ampX * (Math.sin(tA + phAx[i]) + Math.sin(tB + phBx[i]));
-        const oy = ampY * (Math.sin(tA + phAy[i]) + Math.sin(tB + phBy[i]));
-        const sx = vx + px[i] * vw + ox;
-        const sy = vy + py[i] * vh + oy;
-        ctx.globalAlpha = pb[i] * brightness;
-        ctx.fillRect(sx, sy, dotSize, dotSize);
+      if (wanderScale <= 0.001) {
+        // Fully settled — skip the trig entirely for this group.
+        for (let i = g.start; i < end; i++) {
+          const sx = vx + px[i] * vw;
+          const sy = vy + py[i] * vh;
+          ctx.globalAlpha = pb[i] * brightness;
+          ctx.fillRect(sx, sy, dotSize, dotSize);
+        }
+      } else {
+        for (let i = g.start; i < end; i++) {
+          const ox = groupAmpX * (Math.sin(tA + phAx[i]) + Math.sin(tB + phBx[i]));
+          const oy = groupAmpY * (Math.sin(tA + phAy[i]) + Math.sin(tB + phBy[i]));
+          const sx = vx + px[i] * vw + ox;
+          const sy = vy + py[i] * vh + oy;
+          ctx.globalAlpha = pb[i] * brightness;
+          ctx.fillRect(sx, sy, dotSize, dotSize);
+        }
       }
     }
     ctx.globalAlpha = 1;
