@@ -20,8 +20,22 @@ export class Field {
     this.coherence = { ...TUNING.baseline };
     this.target    = { ...TUNING.baseline };
 
+    // optional per-object visibility mask: (x, y) => boolean. Used to keep
+    // Santa from bleeding through the wall — particles whose live position
+    // falls outside the mask are skipped at render time.
+    this.masks = {};
+
     // per-frame buckets, computed once after seeding (size,alpha) pairs.
     this._buckets = null;
+
+    // small cache to avoid repeated hashmap lookups during render.
+    this._anyMasks = false;
+  }
+
+  setMask(objectId, fn) {
+    if (fn) this.masks[objectId] = fn;
+    else delete this.masks[objectId];
+    this._anyMasks = Object.keys(this.masks).length > 0;
   }
 
   // Add particles to the pool. `seedFn(push)` calls push(particle) for each.
@@ -109,6 +123,9 @@ export class Field {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
+    const masks = this.masks;
+    const hasMasks = this._anyMasks;
+
     for (const b of buckets) {
       const s = b.sample;
       // fill style = white at the sample's alpha
@@ -118,12 +135,20 @@ export class Field {
         // single-pixel-ish: cheaper as fillRect
         for (let i = b.start; i < b.end; i++) {
           const p = ps[i];
+          if (hasMasks) {
+            const m = masks[p.objectId];
+            if (m && !m(p.x, p.y)) continue;
+          }
           ctx.fillRect(p.x * dpr, p.y * dpr, r, r);
         }
       } else {
         ctx.beginPath();
         for (let i = b.start; i < b.end; i++) {
           const p = ps[i];
+          if (hasMasks) {
+            const m = masks[p.objectId];
+            if (m && !m(p.x, p.y)) continue;
+          }
           ctx.moveTo(p.x * dpr + r, p.y * dpr);
           ctx.arc(p.x * dpr, p.y * dpr, r, 0, Math.PI * 2);
         }

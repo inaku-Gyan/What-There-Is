@@ -1,6 +1,6 @@
 import { TUNING } from "./tuning.js";
 import { Field } from "./field.js";
-import { buildScene } from "./scene.js";
+import { buildScene, pointInQuad } from "./scene.js";
 import { Snow } from "./snow.js";
 import { Santa } from "./santa.js";
 import { mountUI } from "./ui.js";
@@ -33,6 +33,14 @@ function resize() {
   santa = new Santa(field, geom);
   snow  = new Snow(field, geom.window);
   field.finalize();
+
+  // Santa must only be visible *through* the window — never through walls.
+  // The mask is checked per-particle at render time using the live position,
+  // so any Santa-particle whose drift takes it outside the window opening
+  // simply doesn't draw. Cheap, exact clipping.
+  const winQuad = geom.window;
+  field.setMask("santa", (x, y) => pointInQuad(x, y, winQuad));
+
   mountUI(field);
 }
 

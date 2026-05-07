@@ -38,7 +38,7 @@ export const TUNING = {
   },
 
   // particle size & alpha ranges (px / 0..1)
-  particleAlpha: { min: 0.18, max: 0.85 },
+  particleAlpha: { min: 0.22, max: 0.92 },
   particleSize:  { min: 0.5,  max: 1.6 },
 
   // spring constant for settle toward noise-perturbed home (per-second)
@@ -49,12 +49,12 @@ export const TUNING = {
 
   // per-object ambient particle counts (scaled by `density`)
   counts: {
-    ambient: 4000,
-    room:    6000,
-    window:  2500,
-    curtain: 2500,
-    table:   3500,
-    snow:    2000,
+    ambient: 8000,    // dense starfield to match the reference's stippling
+    room:    4000,    // walls — softer than v1, ambient handles most of it
+    window:  3500,    // crisper frame
+    curtain: 4500,    // heavy fabric folds
+    table:   3000,
+    snow:    3000,
     santa:    600,
   },
 

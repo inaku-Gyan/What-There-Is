@@ -100,13 +100,19 @@ export class Santa {
     const rand = this._rand;
     const offsets = buildSamples(rand, Math.round(TUNING.counts.santa * TUNING.density));
 
+    // Scale the silhouette so it spans roughly 35% of the window width.
+    // The raw silhouette in SILHOUETTE constants spans ~140 px; we adapt
+    // to the current window's bounding box.
+    const bb = bboxOf(geom.window);
+    this.scale = (bb.w * 0.35) / 140;
+
     const newParts = [];
     for (let i = 0; i < offsets.length; i++) {
       const [ox, oy] = offsets[i];
       const p = {
         homeX: 0, homeY: 0, x: 0, y: 0,
-        size:  0.5 + rand() * 0.6,
-        alpha: 0.45 + rand() * 0.35,
+        size:  0.5 + rand() * 0.7,
+        alpha: 0.45 + rand() * 0.40,
         phase: rand() * 6.2831,
         objectId: "santa",
         ox, oy,
@@ -133,26 +139,28 @@ export class Santa {
     const sweepPhase = (t % period) / sweepDur; // 0..>1
 
     const bb = bboxOf(this.geom.window);
+    const overscan = 140 * this.scale;
     let ax, ay;
     if (sweepPhase <= 1) {
       // sweep from right (off-window) to left (off-window), with a mild arc
       const u = sweepPhase;
-      ax = bb.x + bb.w + 80 - (bb.w + 160) * u;  // overscan both ends
+      ax = bb.x + bb.w + overscan - (bb.w + overscan * 2) * u;
       const arc = Math.sin(u * Math.PI) * TUNING.santa.yArcAmp;
-      ay = bb.y + bb.h * 0.30 - arc;
+      ay = bb.y + bb.h * 0.28 - arc;
     } else {
       // dormant: park anchor just off-right of the window so when the next
       // sweep begins, particles spring in from the correct direction
       // (right-to-left). Parking far offscreen-left would cause the figure
       // to "stream backwards" into its starting pose.
-      ax = bb.x + bb.w + 200;
-      ay = bb.y + bb.h * 0.30;
+      ax = bb.x + bb.w + overscan + 100;
+      ay = bb.y + bb.h * 0.28;
     }
     const ps = this.particles;
+    const s  = this.scale;
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i];
-      p.homeX = ax + p.ox;
-      p.homeY = ay + p.oy;
+      p.homeX = ax + p.ox * s;
+      p.homeY = ay + p.oy * s;
     }
   }
 }

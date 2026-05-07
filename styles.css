@@ -48,6 +48,19 @@ html, body {
   cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='18' viewBox='0 0 14 18'><path d='M1 1 L1 14 L4 11 L6 16 L8 15 L6 10 L11 10 Z' fill='white' stroke='black' stroke-width='1'/></svg>") 1 1, pointer;
 }
 
+/* Static pointing-hand glyph at the end of each line — a permanent visual
+   hint that the text is interactive. Echoes the cursor in the reference. */
+#texts .line::after {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 16px;
+  margin-left: 6px;
+  vertical-align: -4px;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='16' viewBox='0 0 14 16'><path d='M4 1 H6 V4 H8 V5 H10 V6 H12 V11 H11 V12 H10 V13 H9 V14 H5 V13 H4 V12 H3 V11 H2 V7 H4 Z' fill='white' stroke='black' stroke-width='0.5'/></svg>") no-repeat center / contain;
+  opacity: 0.85;
+}
+
 #texts .line:hover {
   color: rgba(255, 255, 255, 0.85);
 }
