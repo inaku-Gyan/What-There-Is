@@ -1,8 +1,8 @@
-// Santa: a small silhouette of sleigh + reindeer drifting across the sky.
-// Like Snow, Santa lives inside the universal field; we only animate the
-// `homeX`/`homeY` of its slice each frame. The silhouette is encoded as
-// offsets from a moving anchor — one anchor update per frame translates
-// the whole figure.
+// Santa: a fixed silhouette of sleigh + reindeer placed inside the window.
+// No movement — the figure simply *is* there, dissolved into the noise at
+// baseline coherence and re-condensed when its sentence is invoked. The
+// universal noise drift in field.js gives the silhouette a faint breathing
+// quality even at rest.
 import { TUNING } from "./tuning.js";
 import { makeRng } from "./rng.js";
 
@@ -11,20 +11,15 @@ import { makeRng } from "./rng.js";
 // simple — at the densities we run, the outline reads as "something
 // pulled through the sky" rather than as anatomy.
 const SILHOUETTE = (() => {
-  // sleigh body (right end), points then chained as polyline
   const sleigh = [[60, 0], [55, -7], [42, -9], [22, -7], [10, -3], [5, 0]];
-  // harness curve into the deer
   const harness = [[5, 0], [-4, -1]];
-  // four reindeer, walking-front-leg-forward, smallest minimal shape
   function deer(cx) {
     const body = [
-      [cx + 7, -3], [cx - 6, -3],          // back
-      [cx - 7, 0],  [cx + 8, 0],           // belly
+      [cx + 7, -3], [cx - 6, -3],
+      [cx - 7, 0],  [cx + 8, 0],
       [cx + 7, -3],
     ];
-    const head = [
-      [cx + 7, -3], [cx + 11, -7], [cx + 12, -10],
-    ];
+    const head    = [[cx + 7, -3], [cx + 11, -7], [cx + 12, -10]];
     const antlers = [
       [cx + 12, -10], [cx + 11, -13], [cx + 13, -12],
       [cx + 12, -10], [cx + 14, -11],
@@ -36,7 +31,6 @@ const SILHOUETTE = (() => {
     return [body, head, antlers, legs];
   }
   const segs = [sleigh, harness];
-  // 4 deer, each ~16px wide, walking left
   segs.push(...deer(-12));
   segs.push(...deer(-30));
   segs.push(...deer(-48));
@@ -44,7 +38,6 @@ const SILHOUETTE = (() => {
   return segs;
 })();
 
-// Pre-compute the per-segment lengths once so we can sample proportionally.
 function buildSamples(rand, n) {
   const all = [];
   let total = 0;
@@ -60,12 +53,10 @@ function buildSamples(rand, n) {
   for (let s = 0; s < SILHOUETTE.length; s++) {
     const poly = SILHOUETTE[s];
     const count = Math.max(2, Math.round(n * (segLens[s] / total)));
-    // sample `count` points along this polyline uniformly by arc length
     const subs = [];
     let acc = 0;
     for (let i = 0; i < poly.length - 1; i++) {
       subs.push({
-        i,
         ax: poly[i][0],   ay: poly[i][1],
         bx: poly[i+1][0], by: poly[i+1][1],
         len: Math.hypot(poly[i+1][0] - poly[i][0], poly[i+1][1] - poly[i][1]),
@@ -89,79 +80,38 @@ function buildSamples(rand, n) {
   return all;
 }
 
+// Static Santa seeder. Constructor seeds particles into the field at fixed
+// home positions — there is no per-frame update.
 export class Santa {
   constructor(field, geom) {
-    this.field = field;
-    this.geom = geom;
-    this.particles = [];
-    this._rand = makeRng(TUNING.seed ^ 0xBABE);
-    this.t = 0; // global time accumulator
-
-    const rand = this._rand;
+    const rand = makeRng(TUNING.seed ^ 0xBABE);
     const offsets = buildSamples(rand, Math.round(TUNING.counts.santa * TUNING.density));
 
-    // Scale the silhouette so it spans roughly 35% of the window width.
-    // The raw silhouette in SILHOUETTE constants spans ~140 px; we adapt
-    // to the current window's bounding box.
+    // Anchor: upper-third of the window, slightly right of center.
     const bb = bboxOf(geom.window);
-    this.scale = (bb.w * 0.35) / 140;
+    const ax = bb.x + bb.w * 0.55;
+    const ay = bb.y + bb.h * 0.30;
+
+    // Scale the silhouette so it spans roughly 35% of the window width.
+    // Raw silhouette spans ~140 px in the SILHOUETTE constants.
+    const scale = (bb.w * 0.35) / 140;
 
     const newParts = [];
     for (let i = 0; i < offsets.length; i++) {
       const [ox, oy] = offsets[i];
-      const p = {
-        homeX: 0, homeY: 0, x: 0, y: 0,
+      const hx = ax + ox * scale;
+      const hy = ay + oy * scale;
+      newParts.push({
+        homeX: hx, homeY: hy, x: hx, y: hy,
         size:  0.5 + rand() * 0.7,
         alpha: 0.45 + rand() * 0.40,
         phase: rand() * 6.2831,
         objectId: "santa",
-        ox, oy,
-      };
-      newParts.push(p);
+      });
     }
     field.add("santa", (push) => {
-      for (const p of newParts) {
-        push(p);
-        this.particles.push(p);
-      }
+      for (const p of newParts) push(p);
     });
-  }
-
-  // Anchor traverses right-to-left across the sky inside the window region.
-  // Outside the active sweep (most of the time) the anchor is offscreen so
-  // the silhouette is irrelevant. While sweeping, all santa-particles
-  // update their homes derivatively.
-  update(dt, t) {
-    this.t = t;
-    const period   = TUNING.santa.period;
-    const sweepDur = TUNING.santa.sweepDuration;
-    const phase = (t % period) / period;     // 0..1
-    const sweepPhase = (t % period) / sweepDur; // 0..>1
-
-    const bb = bboxOf(this.geom.window);
-    const overscan = 140 * this.scale;
-    let ax, ay;
-    if (sweepPhase <= 1) {
-      // sweep from right (off-window) to left (off-window), with a mild arc
-      const u = sweepPhase;
-      ax = bb.x + bb.w + overscan - (bb.w + overscan * 2) * u;
-      const arc = Math.sin(u * Math.PI) * TUNING.santa.yArcAmp;
-      ay = bb.y + bb.h * 0.28 - arc;
-    } else {
-      // dormant: park anchor just off-right of the window so when the next
-      // sweep begins, particles spring in from the correct direction
-      // (right-to-left). Parking far offscreen-left would cause the figure
-      // to "stream backwards" into its starting pose.
-      ax = bb.x + bb.w + overscan + 100;
-      ay = bb.y + bb.h * 0.28;
-    }
-    const ps = this.particles;
-    const s  = this.scale;
-    for (let i = 0; i < ps.length; i++) {
-      const p = ps[i];
-      p.homeX = ax + p.ox * s;
-      p.homeY = ay + p.oy * s;
-    }
   }
 }
 

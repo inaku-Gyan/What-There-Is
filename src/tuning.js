@@ -61,9 +61,6 @@ export const TUNING = {
   // snow physics
   snow: { fallMin: 14, fallMax: 38, drift: 6 },
 
-  // santa anchor sweep
-  santa: { period: 65, sweepDuration: 40, yArcAmp: 30 },
-
   // master seed for deterministic layouts
   seed: 0xC0FFEE,
 };

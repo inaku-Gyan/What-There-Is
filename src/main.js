@@ -13,7 +13,6 @@ let W = 0, H = 0;       // CSS pixels
 let field = null;
 let geom  = null;
 let snow  = null;
-let santa = null;
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, TUNING.dprCap);
@@ -28,18 +27,20 @@ function resize() {
   geom  = buildScene(field, W, H);
   // Santa is added BEFORE snow so snow renders later in the bucket order
   // and visually occludes Santa — exactly the "partially obscured" feeling
-  // we want. (Bucket order is by size/alpha, but snow's slightly larger
-  // bright flakes naturally land in later buckets than Santa's dimmer ones.)
-  santa = new Santa(field, geom);
+  // we want. Santa is a one-shot seeder; we don't need to keep the instance.
+  new Santa(field, geom);
   snow  = new Snow(field, geom.window);
   field.finalize();
 
-  // Santa must only be visible *through* the window — never through walls.
-  // The mask is checked per-particle at render time using the live position,
-  // so any Santa-particle whose drift takes it outside the window opening
-  // simply doesn't draw. Cheap, exact clipping.
+  // Both Santa and Snow are confined to the window opening. The mask is
+  // checked per-particle at render time using the live position, so any
+  // particle whose drift takes it outside the window simply doesn't draw —
+  // Santa never bleeds through the wall, snow never falls past the slanted
+  // edges of the trapezoid before being recycled.
   const winQuad = geom.window;
-  field.setMask("santa", (x, y) => pointInQuad(x, y, winQuad));
+  const inWindow = (x, y) => pointInQuad(x, y, winQuad);
+  field.setMask("santa", inWindow);
+  field.setMask("snow",  inWindow);
 
   mountUI(field);
 }
@@ -51,7 +52,6 @@ function frame(now) {
   const t = now / 1000;
 
   field.updateCoherence(dt);
-  santa.update(dt, t);
   snow.update(dt, t);
   field.update(dt, t);
   field.render(ctx, dpr);

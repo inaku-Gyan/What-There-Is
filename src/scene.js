@@ -11,27 +11,28 @@ import {
   sampleQuadFill,
 } from "./seeds.js";
 
-// Camera is low and to the left of center, looking up and slightly to the
-// right. The window dominates the right two-thirds with a strong upward
-// trapezoid (top is wider, bottom is narrower — we're under it). The wall
-// corner sits just left of the window's left edge.
+// Camera is low — a worm's-eye view from near the floor looking up. The
+// window dominates the right portion. Vertical edges of the wall and the
+// window converge upward toward an above-camera vanishing point, so the
+// window's TOP is narrower and its BOTTOM is wider. Same goes for the wall
+// corner: its top sits inward (rightward) of its bottom.
 export function geom(W, H) {
-  // Wall corner where the left wall meets the back wall — runs from the
-  // floor up toward the ceiling, just left of the window.
-  const cornerBottom = { x: W * 0.34, y: H };
-  const cornerTop    = { x: W * 0.40, y: H * 0.04 };
+  // Wall corner where the left wall meets the back wall. Worm's-eye: top
+  // pulls inward (rightward), bottom pushes outward (leftward).
+  const cornerBottom = { x: W * 0.20, y: H };
+  const cornerTop    = { x: W * 0.40, y: H * 0.05 };
 
   // Ceiling rim — slopes from upper-left of canvas toward the corner-top.
   const ceilingStart = { x: 0,            y: H * 0.16 };
   const ceilingEnd   = { x: cornerTop.x,  y: cornerTop.y };
 
-  // Window — large, dominates the right portion. Strong upward trapezoid.
-  // Corners listed CW from top-left.
+  // Window — bottom-wide, top-narrow trapezoid. Corners listed CW from
+  // top-left. Sits left of canvas-edge so the right curtain has room.
   const window = [
-    [W * 0.34, H * 0.04],   // top-left
-    [W * 0.99, H * 0.02],   // top-right (effectively off-canvas)
-    [W * 0.85, H * 0.80],   // bottom-right
-    [W * 0.45, H * 0.85],   // bottom-left
+    [W * 0.45, H * 0.05],   // top-left  (pulled inward)
+    [W * 0.80, H * 0.03],   // top-right (pulled inward)
+    [W * 0.95, H * 0.86],   // bottom-right (pushed outward)
+    [W * 0.30, H * 0.90],   // bottom-left  (pushed outward)
   ];
 
   // Small table in the lower-left, in front of the wall. The legs run off
