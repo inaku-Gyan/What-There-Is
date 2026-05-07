@@ -36,9 +36,9 @@
   const canvas = document.getElementById("stage");
   const ctx = canvas.getContext("2d", { alpha: false });
 
-  const res = await fetch("../particles.json");
+  const res = await fetch("../../the-page/particles.json");
   if (!res.ok) {
-    status.textContent = "failed to load ../particles.json — serve from project root";
+    status.textContent = "failed to load ../../the-page/particles.json — serve from project root";
     return;
   }
   const data = await res.json();

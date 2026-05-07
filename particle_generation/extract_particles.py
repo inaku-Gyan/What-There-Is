@@ -61,14 +61,23 @@ def write_json(particles: np.ndarray, width: int, height: int, output: Path) -> 
         ],
     }
     text = json.dumps(payload, separators=(",", ":"))
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(text)
     return len(text)
 
 
+# Anchor default I/O paths to this script's location so the extractor works
+# regardless of the caller's CWD. Output goes into ../the-page/ so the web
+# page (served from that directory) can fetch it as "particles.json".
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_INPUT  = SCRIPT_DIR / "Reference.png"
+DEFAULT_OUTPUT = SCRIPT_DIR.parent / "the-page" / "particles.json"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=Path("Reference.png"))
-    parser.add_argument("--output", type=Path, default=Path("particles.json"))
+    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--count", type=int, default=160000, help="Number of particles to sample.")
     parser.add_argument(
         "--gamma",
