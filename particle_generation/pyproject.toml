@@ -1,0 +1,9 @@
+[project]
+name = "particles-extractor"
+version = "0.1.0"
+description = "Extract particle coordinates from a black-and-white reference image for web replay."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "pillow>=10.0",
+]
