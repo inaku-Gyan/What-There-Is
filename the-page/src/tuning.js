@@ -36,4 +36,22 @@ export const TUNING = {
     // exponential lerp rate, 1/sec. ~0.6s to reach ~92% of target.
     lerpRate: 4.0,
   },
+
+  // Mouse-driven scramble: as the cursor moves, particles within `radius`
+  // get their wander amplitude briefly amplified, then decay back. The
+  // wander multiplier is (1 + disturb · ampMultiplier), so an emphasized
+  // group whose wander is already damped to zero is naturally immune —
+  // multiplying zero by anything stays zero, no separate exemption needed.
+  mouse: {
+    // Radius of disturbance in normalized [0,1] source units. Multiplied
+    // by min(viewW, viewH) at runtime so the footprint reads as a circle
+    // regardless of the source's aspect ratio.
+    // 0.05 → ~50px on a 1000px-tall letterboxed view.
+    radius: 0.05,
+    // Peak wander amplification. 10 means a fully disturbed particle
+    // wanders 11× wider than its calm baseline.
+    ampMultiplier: 12.0,
+    // Disturb decay rate (1/sec). 2.0 → ~50% in 0.35s, ~95% in 1.5s.
+    decayRate: 2.0,
+  },
 };

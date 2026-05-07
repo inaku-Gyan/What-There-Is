@@ -41,6 +41,9 @@ export class Particles {
     this.phAy = new Float32Array(total);
     this.phBx = new Float32Array(total);
     this.phBy = new Float32Array(total);
+    // Per-particle scramble level [0,1]; rises to 1 when the mouse passes
+    // nearby and decays exponentially. Read as a wander-amplitude multiplier.
+    this.disturb = new Float32Array(total);
 
     this.groups = {};
     this.groupOrder = [];
@@ -85,6 +88,14 @@ export class Particles {
     this.viewX = 0; this.viewY = 0; this.viewW = 0; this.viewH = 0;
     this.viewRatio = 1;
     this.dpr = 1;
+
+    // Mouse-sample buffer — flat [x0, y0, x1, y1, ...] in canvas-pixel coords.
+    // Populated by addMouseSample() (called once per coalesced pointer event)
+    // and drained once per tick. The previous tick's last sample persists in
+    // prevSampleX/Y so we can walk a continuous polyline across frame boundaries.
+    this.mouseSamples = [];
+    this.prevSampleX = null;
+    this.prevSampleY = null;
   }
 
   resize(W, H, dpr) {
@@ -116,6 +127,10 @@ export class Particles {
     g.levelTarget = on ? 1 : 0;
   }
 
+  addMouseSample(canvasX, canvasY) {
+    this.mouseSamples.push(canvasX, canvasY);
+  }
+
   tick(dt) {
     const k = dt > 0 ? 1 - Math.exp(-TUNING.group.lerpRate * dt) : 0;
     const ratio = this.viewRatio;
@@ -125,6 +140,90 @@ export class Particles {
       const total = g.end - g.start;
       const density = lerp(g.baseline.density, g.invoked.density, g.level);
       g.activeCount = Math.min(total, Math.max(0, Math.round(total * ratio * density)));
+    }
+
+    // Decay disturb toward zero. One multiply per particle — trivially
+    // cheap even at 400k particles, and it keeps the math closed-form.
+    if (dt > 0) {
+      const decayK = Math.exp(-TUNING.mouse.decayRate * dt);
+      const disturb = this.disturb;
+      for (let i = 0; i < disturb.length; i++) {
+        disturb[i] *= decayK;
+      }
+    }
+
+    // Apply this frame's mouse disturbance. We get one sample per coalesced
+    // pointer event (typically several per frame on high-poll-rate mice),
+    // plus we subdivide any segment longer than the disturb radius so fast
+    // sweeps still leave a continuous trail rather than dotted stamps.
+    const samples = this.mouseSamples;
+    if (samples.length > 0 && this.viewW > 0 && this.viewH > 0) {
+      const rPx = TUNING.mouse.radius * Math.min(this.viewW, this.viewH);
+      const r2 = rPx * rPx;
+      // 0.6 → adjacent stamps overlap with margin; smaller = denser, slower.
+      const stepSize = rPx * 0.6;
+
+      // Walk the polyline (prevSample → samples[0] → samples[1] → ...) and
+      // emit dense stamps. Cap subdivisions per segment so a freak teleport
+      // (tab refocus, drag-drop) can't blow up cost.
+      const stamps = [];
+      let lx = this.prevSampleX, ly = this.prevSampleY;
+      for (let s = 0; s < samples.length; s += 2) {
+        const nx = samples[s], ny = samples[s + 1];
+        if (lx !== null) {
+          const dx = nx - lx, dy = ny - ly;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const subdivs = Math.min(32, Math.max(1, Math.ceil(dist / stepSize)));
+          for (let k = 1; k <= subdivs; k++) {
+            const t = k / subdivs;
+            stamps.push(lx + dx * t, ly + dy * t);
+          }
+        } else {
+          stamps.push(nx, ny);
+        }
+        lx = nx; ly = ny;
+      }
+      this.prevSampleX = lx;
+      this.prevSampleY = ly;
+      samples.length = 0;
+
+      // Bounding box of all stamps, inflated by r — particles outside this
+      // box can't possibly be hit by any stamp, so we bail before the inner
+      // loop. This keeps cost roughly proportional to trail area, not N×M.
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      const stampLen = stamps.length;
+      for (let s = 0; s < stampLen; s += 2) {
+        const x = stamps[s], y = stamps[s + 1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      minX -= rPx; maxX += rPx; minY -= rPx; maxY += rPx;
+
+      const px = this.px, py = this.py, disturb = this.disturb;
+      const vx = this.viewX, vy = this.viewY, vw = this.viewW, vh = this.viewH;
+      for (const name of this.groupOrder) {
+        const g = this.groups[name];
+        // Fully-emphasized groups have wander damped to zero, so disturb
+        // is invisible there — skip the distance check entirely.
+        if (g.level > 0.999) continue;
+        const end = g.end;
+        for (let i = g.start; i < end; i++) {
+          const ppx = vx + px[i] * vw;
+          if (ppx < minX || ppx > maxX) continue;
+          const ppy = vy + py[i] * vh;
+          if (ppy < minY || ppy > maxY) continue;
+          for (let s = 0; s < stampLen; s += 2) {
+            const dx = ppx - stamps[s];
+            const dy = ppy - stamps[s + 1];
+            if (dx * dx + dy * dy <= r2) {
+              disturb[i] = 1.0;
+              break;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -136,6 +235,8 @@ export class Particles {
     const dotSize = Math.max(1, Math.round(this.dpr));
     const px = this.px, py = this.py, pb = this.pb;
     const phAx = this.phAx, phAy = this.phAy, phBx = this.phBx, phBy = this.phBy;
+    const disturb = this.disturb;
+    const ampMul = TUNING.mouse.ampMultiplier;
     const vx = this.viewX, vy = this.viewY, vw = this.viewW, vh = this.viewH;
 
     // Wander offset = amp * (sin(t·wA + phA) + sin(t·wB + phB)) per axis.
@@ -168,8 +269,12 @@ export class Particles {
         }
       } else {
         for (let i = g.start; i < end; i++) {
-          const ox = groupAmpX * (Math.sin(tA + phAx[i]) + Math.sin(tB + phBx[i]));
-          const oy = groupAmpY * (Math.sin(tA + phAy[i]) + Math.sin(tB + phBy[i]));
+          // Per-particle wander amplifier: 1 normally, up to (1 + ampMul)
+          // when the cursor just swept past. Multiplied onto the group's
+          // already-damped amplitude so emphasized groups stay still.
+          const scale = 1 + disturb[i] * ampMul;
+          const ox = groupAmpX * scale * (Math.sin(tA + phAx[i]) + Math.sin(tB + phBx[i]));
+          const oy = groupAmpY * scale * (Math.sin(tA + phAy[i]) + Math.sin(tB + phBy[i]));
           const sx = vx + px[i] * vw + ox;
           const sy = vy + py[i] * vh + oy;
           ctx.globalAlpha = pb[i] * brightness;

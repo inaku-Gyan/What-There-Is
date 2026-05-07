@@ -53,6 +53,21 @@ function wireTextButtons() {
   });
 }
 
+// Forward cursor positions to the particle field. We use pointermove +
+// getCoalescedEvents() instead of mousemove so we receive every sub-frame
+// sample the OS captured (a 1000Hz mouse on a 60Hz frame yields ~16 sub-
+// events) — much denser than the once-per-frame mousemove rate. Listen on
+// window (not canvas) so the text overlay doesn't swallow events.
+window.addEventListener("pointermove", (e) => {
+  if (!particles) return;
+  const events = typeof e.getCoalescedEvents === "function"
+    ? e.getCoalescedEvents()
+    : [e];
+  for (const ev of events) {
+    particles.addMouseSample(ev.clientX * dpr, ev.clientY * dpr);
+  }
+});
+
 (async () => {
   resize();
   // particles.json sits next to index.html — written there by
