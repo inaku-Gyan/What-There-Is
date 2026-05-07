@@ -20,12 +20,12 @@ from PIL import Image
 # then Santa on top. Counts are tuned for the source image's relative areas
 # — background fills the frame, table is a chunky shape, Santa is small.
 GROUPS: list[tuple[str, str, int]] = [
-    ("background", "background.png", 100_000),
+    ("background", "background.png", 300_000),
     # table & santa get extra particles so the JS can render only a fraction
     # at baseline (matching background density) and reveal the rest when
     # the corresponding text is clicked — "emphasis = brightness + density".
     ("table",      "table.png",       100_000),
-    ("santa",      "Santa.png",       100_000),
+    ("santa",      "Santa.png",       20_000),
 ]
 
 
